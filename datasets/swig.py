@@ -242,8 +242,8 @@ def collater(data):
     widths = [int(s.shape[1]) for s in imgs]
 
     batch_size = len(imgs)
-    max_height = 400
-    max_width = 400
+    max_height = 700
+    max_width = 700
 
     padded_imgs = torch.zeros(batch_size, max_height, max_width, 3)
     for i in range(batch_size):
@@ -289,7 +289,7 @@ class Resizer(object):
         self.is_for_training = is_for_training
 
 
-    def __call__(self, sample, min_side=300, max_side=400):
+    def __call__(self, sample, min_side=512, max_side=700):
         image, annots, image_name = sample['img'], sample['annot'], sample['img_name']
 
         rows_orig, cols_orig, cns_orig = image.shape
@@ -316,8 +316,8 @@ class Resizer(object):
         new_image = np.zeros((rows, cols, cns)).astype(np.float32)
         new_image[:rows, :cols, :] = image.astype(np.float32)
 
-        shift_1 = int((400 - cols) * 0.5)
-        shift_0 = int((400 - rows) * 0.5)
+        shift_1 = int((700 - cols) * 0.5)
+        shift_0 = int((700 - rows) * 0.5)
 
         annots[:, :4][annots[:, :4] != -1] *= scale
 
