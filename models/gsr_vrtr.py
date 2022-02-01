@@ -59,16 +59,16 @@ class GSR_Transformer(nn.Module):
             _, topk_v = v_pred[0].topk(topk)  # we have only one verb query
             assert topk_v.shape == torch.Size((bs, topk))
 
-            role_key_padding_mask = torch.zeros((bs, self.num_roles), dtype=bool, device=vhs.device)
+            role_key_padding_mask = torch.ones((bs, self.num_roles), dtype=bool, device=vhs.device)
             for b in range(bs):
                 for v in topk_v[b]:
-                    role_key_padding_mask[b, torch.tensor(self.vidx_ridx[v])] = True
+                    role_key_padding_mask[b, torch.tensor(self.vidx_ridx[v])] = False
 
             if gt_verb is not None:
                 assert gt_verb.shape == torch.Size((bs, ))
                 for b in range(bs):
                     v = gt_verb[b]
-                    role_key_padding_mask[b, torch.tensor(self.vidx_ridx[v])] = True
+                    role_key_padding_mask[b, torch.tensor(self.vidx_ridx[v])] = False
 
         return role_key_padding_mask
 
