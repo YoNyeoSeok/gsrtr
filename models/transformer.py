@@ -107,8 +107,8 @@ class VerbRoleTransformer(nn.Module):
                     mask=mask,
                     role_mask=role_mask,
                     pos_embed=pos_embed,
-                    v2r_gt_verb_embed=v2r_gt_verb_embed if
-                        s == self.num_steps - 1 else None,
+                    v2r_gt_verb_embed=(v2r_gt_verb_embed if
+                            s == self.num_steps - 1 else None),
                     role_mask_gt_verb=role_mask_gt_verb,
                     )
             assert r2v.shape == torch.Size((num_verb_token, bs, c))
