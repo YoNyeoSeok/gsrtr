@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------------------------------
 # GSRTR Official Code
-# Copyright (c) Junhyeong Cho. All Rights Reserved 
+# Copyright (c) Junhyeong Cho. All Rights Reserved
 # Licensed under the Apache License 2.0 [see LICENSE for details]
 # ----------------------------------------------------------------------------------------------
 # Modified from DETR (https://github.com/facebookresearch/detr)
@@ -13,12 +13,13 @@ GSR Verb-Role Transformer
 import copy
 import torch
 import torch.nn.functional as F
-from typing import Optional, List
+from typing import Optional
 from torch import nn, Tensor
+
 
 class VerbRoleTransformer(nn.Module):
 
-    def __init__(self, d_model=512, nhead=8, num_encoder_layers=6, num_verb_decoder_layers=2, num_role_decoder_layers=2, 
+    def __init__(self, d_model=512, nhead=8, num_encoder_layers=6, num_verb_decoder_layers=2, num_role_decoder_layers=2,
                  dim_feedforward=2048, dropout=0.15, activation="relu", num_steps=3, num_topkv=[100, 10, 1]):
         super().__init__()
 
@@ -55,7 +56,7 @@ class VerbRoleTransformer(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
-    
+
     def forward_encoder(self, src, mask, pos_embed):
         # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
@@ -71,7 +72,7 @@ class VerbRoleTransformer(nn.Module):
         assert memory.shape == torch.Size((h*w, bs, c))
 
         return memory
-    
+
     def forward_verb_role_decoder(
             self, verb_token, role_tokens, topk_verb_role_mask, memory,
             mask: Optional[Tensor] = None,
@@ -91,6 +92,7 @@ class VerbRoleTransformer(nn.Module):
         # Transformer Decoder
         vhs = verb_token
         rhs = role_tokens
+        role_mask = torch.zeros((bs, num_role_tokens), dtype=bool, device=rhs.device)
         step_r2v, step_vhs, step_v2r, step_role_mask, step_rhs = [], [], [], [], []
         for s in range(self.num_steps):
             r2v, vhs, v2r, role_mask, rhs = self.verb_role_decoder[s](
@@ -100,21 +102,22 @@ class VerbRoleTransformer(nn.Module):
                     num_topkv=self.num_topkv[s],
                     memory=memory,
                     mask=mask,
-                    pos_embed=pos_embed, 
+                    role_mask=role_mask,
+                    pos_embed=pos_embed,
                     gt_verb=gt_verb)
 
             assert r2v.shape == torch.Size((num_verb_token, bs, c))
             assert vhs.shape == torch.Size((num_verb_token, bs, c))
             assert v2r.shape == torch.Size((num_role_tokens, bs, c))
-            assert role_mask.shape == torch.Size((num_role_tokens, bs))
+            assert role_mask.shape == torch.Size((bs, num_role_tokens))
             assert rhs.shape == torch.Size((num_role_tokens, bs, c))
 
             step_r2v.append(r2v)
             step_vhs.append(vhs)
             step_v2r.append(v2r)
-            step_role_mask.append(role_mask)
+            step_role_mask.append(role_mask.transpose(0, 1))
             step_rhs.append(rhs)
-        
+
         batch_step_r2v = torch.stack(step_r2v, dim=1)
         batch_step_vhs = torch.stack(step_vhs, dim=1)
         batch_step_v2r = torch.stack(step_v2r, dim=1)
@@ -168,7 +171,7 @@ class TransformerVerbRoleDecoder(nn.Module):
                                                    norm=nn.LayerNorm(d_model))
 
         self.role_to_verb = RoleToVerbAttention(d_model, nhead, dropout)
-    
+
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -178,19 +181,21 @@ class TransformerVerbRoleDecoder(nn.Module):
 
     def forward(self, verb_query, role_queries, topk_verb_role_mask, num_topkv, memory,
                 mask: Optional[Tensor] = None,
-                pos_embed: Optional[Tensor] = None, 
+                role_mask: Optional[Tensor] = None,
+                pos_embed: Optional[Tensor] = None,
                 gt_verb: Optional[Tensor] = None, ):
         hw, bs, c = memory.shape
         assert pos_embed.shape == torch.Size((hw, bs, c))
         assert mask.shape == torch.Size((bs, hw))
 
-        num_verb_query, _, _ = verb_query.shape 
+        num_verb_query, _, _ = verb_query.shape
         assert verb_query.shape == torch.Size((num_verb_query, bs, c))
-        num_role_queries, _, _ = role_queries.shape 
+        num_role_queries, _, _ = role_queries.shape
         assert role_queries.shape == torch.Size((num_role_queries, bs, c))
+        assert role_mask.shape == torch.Size((bs, num_role_queries))
 
         # role to verb
-        r2v = self.role_to_verb(verb_query, role_queries)
+        r2v = self.role_to_verb(verb_query, role_queries, role_key_padding_mask=role_mask)
         assert r2v.shape == torch.Size((num_verb_query, bs, c))
 
         # verb decoder
@@ -205,20 +210,20 @@ class TransformerVerbRoleDecoder(nn.Module):
         # verb to role, top-k verb role mask
         v2r = self.verb_to_role(vhs, role_queries)
         assert v2r.shape == torch.Size((num_role_queries, bs, c))
-        role_key_padding_mask = topk_verb_role_mask(vhs, topk=num_topkv, gt_verb=gt_verb)
-        assert role_key_padding_mask.shape == torch.Size((bs, num_role_queries))
+        role_mask = topk_verb_role_mask(vhs, topk=num_topkv, gt_verb=gt_verb)
+        assert role_mask.shape == torch.Size((bs, num_role_queries))
 
         # role decoder
         rhs = self.role_decoder(role_queries=role_queries,
                                 memory=memory,
                                 verb2role=v2r,
-                                role_key_padding_mask=role_key_padding_mask,
+                                role_key_padding_mask=role_mask,
                                 memory_key_padding_mask=mask,
                                 pos=pos_embed,
                                 query_pos=torch.zeros_like(role_queries))
         assert rhs.shape == torch.Size((num_role_queries, bs, c))
 
-        return r2v, vhs, v2r, role_key_padding_mask.transpose(0, 1), rhs
+        return r2v, vhs, v2r, role_mask, rhs
 
 
 class TransformerVerbDecoder(nn.Module):
@@ -379,13 +384,13 @@ class TransformerRoleDecoderLayer(nn.Module):
         role_queries2 = self.norm1(role_queries)
         q = k = self.with_pos_embed(role_queries2, query_pos)
         role_queries2 = self.self_attn(q, k, value=role_queries2, attn_mask=role_attn_mask,
-                                     key_padding_mask=role_key_padding_mask)[0]
+                                       key_padding_mask=role_key_padding_mask)[0]
         role_queries = role_queries + self.dropout1(role_queries2)
         role_queries2 = self.norm2(role_queries)
         role_queries2 = self.multihead_attn(query=self.with_pos_embed(role_queries2, query_pos),
-                                          key=self.with_pos_embed(memory, pos),
-                                          value=memory, attn_mask=memory_attn_mask,
-                                          key_padding_mask=memory_key_padding_mask)[0]
+                                            key=self.with_pos_embed(memory, pos),
+                                            value=memory, attn_mask=memory_attn_mask,
+                                            key_padding_mask=memory_key_padding_mask)[0]
         role_queries = role_queries + self.dropout2(role_queries2)
         role_queries2 = self.norm3(role_queries)
         role_queries2 = self.ffn(role_queries2)
@@ -454,11 +459,11 @@ class RoleToVerbAttention(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, vhs, rhs):
+    def forward(self, vhs, rhs, role_key_padding_mask):
         vhs2 = self.norm(self.query_proj(vhs))
         k = self.key_proj(rhs)
         v = self.value_proj(rhs)
-        vhs2 = self.attn(query=vhs2, key=k, value=v)[0]
+        vhs2 = self.attn(query=vhs2, key=k, value=v, key_padding_mask=role_key_padding_mask)[0]
         vhs = vhs + self.dropout(vhs2)
         return vhs
 

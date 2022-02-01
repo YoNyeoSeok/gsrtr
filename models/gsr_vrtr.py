@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------------------------------
 # GSRTR Official Code
-# Copyright (c) Junhyeong Cho. All Rights Reserved 
+# Copyright (c) Junhyeong Cho. All Rights Reserved
 # Licensed under the Apache License 2.0 [see LICENSE for details]
 # ----------------------------------------------------------------------------------------------
 # Modified from DETR (https://github.com/facebookresearch/detr)
@@ -80,7 +80,6 @@ class GSR_Transformer(nn.Module):
         Outputs:
                - out: dict of tensors. 'pred_verb', 'pred_noun', 'pred_bbox' and 'pred_bbox_conf' are keys
         """
-        MAX_NUM_ROLES = 6
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
@@ -112,7 +111,7 @@ class GSR_Transformer(nn.Module):
         # assert v2r.shape == torch.Size((self.num_roles, num_steps, batch_size, hidden_dim))
         # assert role_mask.shape == torch.Size((self.num_roles, num_steps, batch_size))
         # assert rhs.shape == torch.Size((self.num_roles, num_steps, batch_size, hidden_dim))
-        
+
         verb_logit, noun_logit, bbox_exist_logit, bbox_coord_logit = self.pred_heads(vhs, rhs)
         verb_logit = verb_logit.squeeze(0)
         assert verb_logit.shape == torch.Size((num_steps, batch_size, self.pred_heads.num_verb_classes))
@@ -157,11 +156,11 @@ class LabelSmoothing(nn.Module):
 
 
 class SWiGCriterion(nn.Module):
-    """ 
+    """
     Loss for GSRTR with SWiG dataset, and GSRTR evaluation.
     """
     def __init__(self, weight_dict, SWiG_json_train=None, SWiG_json_eval=None, idx_to_role=None):
-        """ 
+        """
         Create the criterion.
         """
         super().__init__()
@@ -171,7 +170,6 @@ class SWiGCriterion(nn.Module):
         self.SWiG_json_train = SWiG_json_train
         self.SWiG_json_eval = SWiG_json_eval
         self.idx_to_role = idx_to_role
-
 
     def forward(self, outputs, targets, eval=False):
         """ This performs the loss computation, and evaluation of GSRTR.
@@ -215,7 +213,7 @@ class SWiGCriterion(nn.Module):
         step_batch_noun_acc = torch.stack(step_batch_noun_acc)
         step_batch_noun_correct = torch.stack(step_batch_noun_correct)
 
-        # top-1 & top 5 verb acc and calculate verb loss 
+        # top-1 & top 5 verb acc and calculate verb loss
         assert 'pred_verb' in outputs
         gt_verbs = torch.stack([t['verbs'] for t in targets])
         step_verb_loss, step_verb_acc_topk = [], []
@@ -223,10 +221,10 @@ class SWiGCriterion(nn.Module):
         for verb_pred_logits in outputs['pred_verb'].squeeze(2):
             verb_loss = self.loss_function_verb(verb_pred_logits, gt_verbs)
             verb_acc_topk = accuracy(verb_pred_logits, gt_verbs, topk=(1, 5))
-            
+
             step_verb_loss.append(verb_loss)
             step_verb_acc_topk.append(verb_acc_topk)
-        
+
             # top-1 & top 5 (value & value-all) acc
             batch_noun_acc_topk, batch_noun_correct_topk = [], []
             for verbs in verb_pred_logits.topk(5)[1].transpose(0, 1):
@@ -249,7 +247,7 @@ class SWiGCriterion(nn.Module):
                 batch_noun_acc_topk.append(torch.stack(batch_noun_acc))
                 batch_noun_correct_topk.append(torch.stack(batch_noun_correct))
             noun_acc_topk = torch.stack(batch_noun_acc_topk)
-            noun_correct_topk = torch.stack(batch_noun_correct_topk) # topk x batch x max roles 
+            noun_correct_topk = torch.stack(batch_noun_correct_topk)  # topk x batch x max roles
 
             step_batch_noun_acc_topk.append(noun_acc_topk)
             step_batch_noun_correct_topk.append(noun_correct_topk)
@@ -281,15 +279,15 @@ class SWiGCriterion(nn.Module):
                 cloned_pb, cloned_target_bboxes = pb.clone(), target_bboxes.clone()
 
                 # bbox conf loss
-                loss_bbox_conf = F.binary_cross_entropy_with_logits(pbc, 
+                loss_bbox_conf = F.binary_cross_entropy_with_logits(pbc,
                                                                     bbox_exist.float(), reduction='mean')
                 batch_bbox_conf_loss.append(loss_bbox_conf)
 
                 # bbox reg loss and giou loss
-                if num_bbox > 0: 
+                if num_bbox > 0:
                     loss_bbox = F.l1_loss(pb[bbox_exist], target_bboxes[bbox_exist], reduction='none')
-                    loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(box_ops.swig_box_cxcywh_to_xyxy(pb[bbox_exist], mw, mh, device=device), 
-                                                                        box_ops.swig_box_cxcywh_to_xyxy(target_bboxes[bbox_exist], mw, mh, device=device, gt=True)))
+                    loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(box_ops.swig_box_cxcywh_to_xyxy(pb[bbox_exist], mw, mh, device=device),
+                                                                           box_ops.swig_box_cxcywh_to_xyxy(target_bboxes[bbox_exist], mw, mh, device=device, gt=True)))
                     batch_bbox_loss.append(loss_bbox.sum() / num_bbox)
                     batch_giou_loss.append(loss_giou.sum() / num_bbox)
 
@@ -301,28 +299,28 @@ class SWiGCriterion(nn.Module):
                 # convert coordinates
                 pb_xyxy = box_ops.swig_box_cxcywh_to_xyxy(cloned_pb, mw, mh, device=device)
                 gt_bbox_xyxy = box_ops.swig_box_cxcywh_to_xyxy(cloned_target_bboxes, mw, mh, device=device, gt=True)
-                
+
                 # accuracies
                 if not eval:
-                    batch_bbox_acc += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles, 
-                                                        noun_correct[i], bbox_exist, t, self.SWiG_json_train, 
-                                                        self.idx_to_role)
+                    batch_bbox_acc += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
+                                                         noun_correct[i], bbox_exist, t, self.SWiG_json_train,
+                                                         self.idx_to_role)
                     batch_bbox_acc_top1 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
-                                                            noun_correct_top1[i], bbox_exist, t, self.SWiG_json_train, 
-                                                            self.idx_to_role)
-                    batch_bbox_acc_top5 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles, 
-                                                            noun_correct_top5[i], bbox_exist, t, self.SWiG_json_train, 
-                                                            self.idx_to_role)
+                                                              noun_correct_top1[i], bbox_exist, t, self.SWiG_json_train,
+                                                              self.idx_to_role)
+                    batch_bbox_acc_top5 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
+                                                              noun_correct_top5[i], bbox_exist, t, self.SWiG_json_train,
+                                                              self.idx_to_role)
                 else:
-                    batch_bbox_acc += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles, 
-                                                        noun_correct[i], bbox_exist, t, self.SWiG_json_eval, 
-                                                        self.idx_to_role, eval)
-                    batch_bbox_acc_top1 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles, 
-                                                            noun_correct_top1[i], bbox_exist, t, self.SWiG_json_eval, 
-                                                            self.idx_to_role, eval) 
-                    batch_bbox_acc_top5 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles, 
-                                                            noun_correct_top5[i], bbox_exist, t, self.SWiG_json_eval, 
-                                                            self.idx_to_role, eval) 
+                    batch_bbox_acc += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
+                                                         noun_correct[i], bbox_exist, t, self.SWiG_json_eval,
+                                                         self.idx_to_role, eval)
+                    batch_bbox_acc_top1 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
+                                                              noun_correct_top1[i], bbox_exist, t, self.SWiG_json_eval,
+                                                              self.idx_to_role, eval)
+                    batch_bbox_acc_top5 += accuracy_swig_bbox(pb_xyxy.clone(), pbc, gt_bbox_xyxy.clone(), num_roles,
+                                                              noun_correct_top5[i], bbox_exist, t, self.SWiG_json_eval,
+                                                              self.idx_to_role, eval)
 
             if len(batch_bbox_loss) > 0:
                 bbox_loss = torch.stack(batch_bbox_loss).mean()
@@ -349,9 +347,8 @@ class SWiGCriterion(nn.Module):
         step_batch_bbox_acc_top1 = torch.stack(step_batch_bbox_acc_top1)
         step_batch_bbox_acc_top5 = torch.stack(step_batch_bbox_acc_top5)
 
-
         out = {}
-        # losses 
+        # losses
         out['loss_vce'] = verb_loss
         out['loss_nce'] = noun_loss
         out['loss_bbox'] = bbox_loss
@@ -359,12 +356,12 @@ class SWiGCriterion(nn.Module):
         out['loss_bbox_conf'] = bbox_conf_loss
 
         # All metrics should be calculated per verb and averaged across verbs.
-        ## In the dev and test split of SWiG dataset, there are 50 images for each verb (same number of images per verb).
-        ### Our implementation is correct to calculate metrics for the dev and test split of SWiG dataset. 
-        ### We calculate metrics in this way for simple implementation in distributed data parallel setting. 
+        # In the dev and test split of SWiG dataset, there are 50 images for each verb (same number of images per verb).
+        # Our implementation is correct to calculate metrics for the dev and test split of SWiG dataset.
+        # We calculate metrics in this way for simple implementation in distributed data parallel setting.
 
         for step, (noun_acc_topk, verb_acc_topk, noun_acc, bbox_acc, bbox_acc_top1, bbox_acc_top5) in enumerate(
-            zip(step_batch_noun_acc_topk, step_verb_acc_topk, step_batch_noun_acc, step_batch_bbox_acc, step_batch_bbox_acc_top1, step_batch_bbox_acc_top5)):
+                zip(step_batch_noun_acc_topk, step_verb_acc_topk, step_batch_noun_acc, step_batch_bbox_acc, step_batch_bbox_acc_top1, step_batch_bbox_acc_top5)):
             # accuracies (for verb and noun)
             out[f'noun_acc_top1_step{step}'] = noun_acc_topk[0].mean()
             out[f'noun_acc_all_top1_step{step}'] = (noun_acc_topk[0] == 100).float().mean()*100
@@ -415,19 +412,19 @@ def build(args):
     criterion = None
 
     if not args.inference:
-        weight_dict = {'loss_nce': args.noun_loss_coef, 'loss_vce': args.verb_loss_coef, 
-                       'loss_bbox':args.bbox_loss_coef, 'loss_giou':args.giou_loss_coef,
-                       'loss_bbox_conf':args.bbox_conf_loss_coef}
-    
+        weight_dict = {'loss_nce': args.noun_loss_coef, 'loss_vce': args.verb_loss_coef,
+                       'loss_bbox': args.bbox_loss_coef, 'loss_giou': args.giou_loss_coef,
+                       'loss_bbox_conf': args.bbox_conf_loss_coef}
+
         if not args.test:
-            criterion = SWiGCriterion(weight_dict=weight_dict, 
-                                      SWiG_json_train=args.SWiG_json_train, 
-                                      SWiG_json_eval=args.SWiG_json_dev, 
+            criterion = SWiGCriterion(weight_dict=weight_dict,
+                                      SWiG_json_train=args.SWiG_json_train,
+                                      SWiG_json_eval=args.SWiG_json_dev,
                                       idx_to_role=args.idx_to_role)
         else:
-            criterion = SWiGCriterion(weight_dict=weight_dict, 
-                                      SWiG_json_train=args.SWiG_json_train, 
-                                      SWiG_json_eval=args.SWiG_json_test, 
+            criterion = SWiGCriterion(weight_dict=weight_dict,
+                                      SWiG_json_train=args.SWiG_json_train,
+                                      SWiG_json_eval=args.SWiG_json_test,
                                       idx_to_role=args.idx_to_role)
 
     return model, criterion
