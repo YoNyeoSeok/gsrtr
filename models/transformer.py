@@ -47,7 +47,8 @@ class VerbRoleTransformer(nn.Module):
             verb_role_decoder.append(TransformerVerbRoleDecoder(
                 d_model, nhead, dim_feedforward, dropout, activation,
                 verb_decoder_layer, num_verb_decoder_layers,
-                role_decoder_layer, num_role_decoder_layers, ))
+                role_decoder_layer, num_role_decoder_layers,
+                ))
         self.verb_role_decoder = nn.Sequential(*verb_role_decoder)
 
         self._reset_parameters()
@@ -77,7 +78,9 @@ class VerbRoleTransformer(nn.Module):
             self, verb_token, role_tokens, topk_verb_role_mask, memory,
             mask: Optional[Tensor] = None,
             pos_embed: Optional[Tensor] = None,
-            gt_verb: Optional[Tensor] = None, ):
+            role_mask_gt_verb: Optional[Tensor] = None, 
+            v2r_gt_verb_embed: Optional[Tensor] = None,
+            ):
         hw, bs, c = memory.shape
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
         assert pos_embed.shape == torch.Size((hw, bs, c))
@@ -104,8 +107,10 @@ class VerbRoleTransformer(nn.Module):
                     mask=mask,
                     role_mask=role_mask,
                     pos_embed=pos_embed,
-                    gt_verb=gt_verb)
-
+                    v2r_gt_verb_embed=v2r_gt_verb_embed if
+                        s == self.num_steps - 1 else None,
+                    role_mask_gt_verb=role_mask_gt_verb,
+                    )
             assert r2v.shape == torch.Size((num_verb_token, bs, c))
             assert vhs.shape == torch.Size((num_verb_token, bs, c))
             assert v2r.shape == torch.Size((num_role_tokens, bs, c))
@@ -161,7 +166,8 @@ class TransformerVerbRoleDecoder(nn.Module):
 
     def __init__(self, d_model, nhead, dim_feedforward, dropout, activation,
                  verb_decoder_layer, num_verb_decoder_layers,
-                 role_decoder_layer, num_role_decoder_layers, ):
+                 role_decoder_layer, num_role_decoder_layers,
+                 ):
         super().__init__()
         self.verb_decoder = TransformerVerbDecoder(verb_decoder_layer, num_verb_decoder_layers,
                                                    norm=nn.LayerNorm(d_model))
@@ -183,7 +189,9 @@ class TransformerVerbRoleDecoder(nn.Module):
                 mask: Optional[Tensor] = None,
                 role_mask: Optional[Tensor] = None,
                 pos_embed: Optional[Tensor] = None,
-                gt_verb: Optional[Tensor] = None, ):
+                v2r_gt_verb_embed: Optional[Tensor] = None,
+                role_mask_gt_verb: Optional[Tensor] = None,
+                ):
         hw, bs, c = memory.shape
         assert pos_embed.shape == torch.Size((hw, bs, c))
         assert mask.shape == torch.Size((bs, hw))
@@ -209,8 +217,11 @@ class TransformerVerbRoleDecoder(nn.Module):
 
         # verb to role, top-k verb role mask
         v2r = self.verb_to_role(vhs, role_queries)
+        if v2r_gt_verb_embed is not None:
+            assert v2r_gt_verb_embed.shape == v2r.shape
+            v2r = v2r*0 + v2r_gt_verb_embed  # unused parameter warning
         assert v2r.shape == torch.Size((num_role_queries, bs, c))
-        role_mask = topk_verb_role_mask(vhs, topk=num_topkv, gt_verb=gt_verb)
+        role_mask = topk_verb_role_mask(vhs, topk=num_topkv, gt_verb=role_mask_gt_verb)
         assert role_mask.shape == torch.Size((bs, num_role_queries))
 
         # role decoder
@@ -492,4 +503,5 @@ def build_transformer(args):
                                num_verb_decoder_layers=args.verb_layers,
                                num_role_decoder_layers=args.role_layers,
                                num_steps=args.num_steps,
-                               num_topkv=args.num_topkv, )
+                               num_topkv=args.num_topkv,
+                               )

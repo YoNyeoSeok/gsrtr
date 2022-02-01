@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------------------------------
 # GSRTR Official Code
-# Copyright (c) Junhyeong Cho. All Rights Reserved 
+# Copyright (c) Junhyeong Cho. All Rights Reserved
 # Licensed under the Apache License 2.0 [see LICENSE for details]
 # ----------------------------------------------------------------------------------------------
 # Modified from DETR (https://github.com/facebookresearch/detr)
@@ -31,7 +31,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         # data & target
         samples = samples.to(device)
         targets = [{k: v.to(device) if type(v) is not str else v for k, v in t.items()} for t in targets]
-        
+
         # model output & calculate loss
         gt_verb = torch.stack([t['verbs'] for t in targets])
         outputs = model(samples, gt_verb=gt_verb)

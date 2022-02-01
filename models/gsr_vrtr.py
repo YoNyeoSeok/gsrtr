@@ -89,6 +89,7 @@ class GSR_Transformer(nn.Module):
         # query init
         batch_size = src.shape[0]
         verb_token = self.verb_token.weight.unsqueeze(1).repeat(1, batch_size, 1)
+        gt_verb_embed = self.verb_classes_embed.weight[gt_verb].unsqueeze(0).repeat(self.num_roles, 1, 1)
         role_tokens = self.role_tokens.weight.unsqueeze(1).repeat(1, batch_size, 1)
 
         # encoder
@@ -102,7 +103,9 @@ class GSR_Transformer(nn.Module):
                 memory=memory,
                 mask=mask,
                 pos_embed=pos[-1],
-                gt_verb=gt_verb)
+                v2r_gt_verb_embed=gt_verb_embed,
+                role_mask_gt_verb=gt_verb,
+                )
 
         num_steps = self.transformer.num_steps
         # hidden_dim = self.transformer.d_model
@@ -408,7 +411,8 @@ def build(args):
                             pred_heads,
                             transformer,
                             num_roles=args.num_roles,
-                            vidx_ridx=args.vidx_ridx, )
+                            vidx_ridx=args.vidx_ridx,
+                            )
     criterion = None
 
     if not args.inference:

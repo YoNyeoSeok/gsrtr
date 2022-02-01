@@ -82,6 +82,7 @@ class PredHeads(nn.Module):
 def build_pred_heads(args):
     pred_heads = PredHeads(hidden_dim=args.hidden_dim,
                            num_verb_classes=args.num_verbs,
-                           num_noun_classes=args.num_nouns, )
+                           num_noun_classes=args.num_nouns,
+                           )
 
     return pred_heads
