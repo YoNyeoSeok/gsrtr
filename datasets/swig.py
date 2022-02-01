@@ -218,6 +218,12 @@ class CSVDataset(Dataset):
     def name_to_label(self, name):
         return self.classes[name]
 
+    def num_verbs(self):
+        return len(self.idx_to_verb)
+    
+    def num_roles(self):
+        return len(self.idx_to_role)
+
     def num_nouns(self):
         return max(self.classes.values()) + 1
 

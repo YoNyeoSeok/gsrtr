@@ -7,7 +7,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved [see LICENSE for details]
 # ----------------------------------------------------------------------------------------------
 
-from .gsrtr import build
+from .gsr_vrtr import build
 
 def build_model(args):
     return build(args)

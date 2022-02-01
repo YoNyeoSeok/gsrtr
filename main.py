@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------------------------------
 # GSRTR Official Code
-# Copyright (c) Junhyeong Cho. All Rights Reserved 
+# Copyright (c) Junhyeong Cho. All Rights Reserved
 # Licensed under the Apache License 2.0 [see LICENSE for details]
 # ----------------------------------------------------------------------------------------------
 # Modified from DETR (https://github.com/facebookresearch/detr)
@@ -41,10 +41,16 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # Transformer parameters
-    parser.add_argument('--enc_layers', default=6, type=int,
-                        help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=6, type=int,
-                        help="Number of decoding layers in the transformer")
+    parser.add_argument('--enc_layers', default=2, type=int,
+                        help="Number of transformer encoder layers")
+    parser.add_argument('--verb_layers', default=2, type=int,
+                        help="Number of verb transformer layers in the verb transformer")
+    parser.add_argument('--role_layers', default=2, type=int,
+                        help="Number of role transformer layers in the role transformer")
+    parser.add_argument('--num_steps', default=3, type=int,
+                        help="Number of verb role decoding steps in the verb-role transformer")
+    parser.add_argument('--num_topkv', default=[100, 10, 1], type=int, nargs='+',
+                        help="Number of topk verbs per steps in the verb-role transformer")
     parser.add_argument('--dim_feedforward', default=2048, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
     parser.add_argument('--hidden_dim', default=512, type=int,
@@ -79,6 +85,7 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--saved_model', default='gsrtr_checkpoint.pth',
                         help='path where saved model is')
+    parser.add_argument('--resume', action='store_true')
 
     # Distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -108,12 +115,14 @@ def main(args):
 
     # build dataset
     dataset_train = build_dataset(image_set='train', args=args)
-    args.num_noun_classes = dataset_train.num_nouns()
+    args.num_verbs = dataset_train.num_verbs()
+    args.num_roles = dataset_train.num_roles()
+    args.num_nouns = dataset_train.num_nouns()
     if not args.test:
         dataset_val = build_dataset(image_set='val', args=args)
     else:
         dataset_test = build_dataset(image_set='test', args=args)
-    
+
     # build model
     model, criterion = build_model(args)
     model.to(device)
@@ -161,23 +170,23 @@ def main(args):
     if not args.test and not args.dev:
         batch_sampler_train = torch.utils.data.BatchSampler(sampler_train, args.batch_size, drop_last=True)
         data_loader_train = DataLoader(dataset_train, num_workers=args.num_workers,
-                                    collate_fn=collater, batch_sampler=batch_sampler_train)
+                                       collate_fn=collater, batch_sampler=batch_sampler_train)
         data_loader_val = DataLoader(dataset_val, num_workers=args.num_workers,
-                                    drop_last=False, collate_fn=collater, sampler=sampler_val)
+                                     drop_last=False, collate_fn=collater, sampler=sampler_val)
     else:
         if args.dev:
             data_loader_val = DataLoader(dataset_val, num_workers=args.num_workers,
-                                        drop_last=False, collate_fn=collater, sampler=sampler_val)
+                                         drop_last=False, collate_fn=collater, sampler=sampler_val)
         elif args.test:
             data_loader_test = DataLoader(dataset_test, num_workers=args.num_workers,
-                                        drop_last=False, collate_fn=collater, sampler=sampler_test)
-    
+                                          drop_last=False, collate_fn=collater, sampler=sampler_test)
+
     # use saved model for evaluation (using dev set or test set)
     if args.dev or args.test:
         checkpoint = torch.load(args.saved_model, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
         if args.dev:
-            data_loader = data_loader_val 
+            data_loader = data_loader_val
         elif args.test:
             data_loader = data_loader_test
 
@@ -191,6 +200,15 @@ def main(args):
 
         return None
 
+    if args.resume:
+        checkpoint = torch.load(args.saved_model, map_location='cpu')
+        assert args.distributed == checkpoint['args'].distributed
+        assert set(args.__dict__.keys()) - set(checkpoint['args'].__dict__.keys()) == set()
+        assert args.start_epoch == checkpoint['epoch'] + 1
+        model_without_ddp.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+
     # train model
     print("Start training")
     start_time = time.time()
@@ -199,7 +217,7 @@ def main(args):
         # train one epoch
         if args.distributed:
             sampler_train.set_epoch(epoch)
-        train_stats = train_one_epoch(model, criterion, data_loader_train, optimizer, 
+        train_stats = train_one_epoch(model, criterion, data_loader_train, optimizer,
                                       device, epoch, args.clip_max_norm)
         lr_scheduler.step()
 
