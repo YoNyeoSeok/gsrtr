@@ -54,7 +54,11 @@ class GSR_Transformer(nn.Module):
         num_verb_query, bs, _ = vhs.shape
 
         with torch.no_grad():
+            mode = self.pred_heads.training
+            self.pred_heads.eval()
             v_pred = self.pred_heads.forward_verb(vhs)
+            self.pred_heads.train(mode)
+            
             assert v_pred.shape == torch.Size((num_verb_query, bs, self.pred_heads.num_verb_classes))
             _, topk_v = v_pred[0].topk(topk)  # we have only one verb query
             assert topk_v.shape == torch.Size((bs, topk))
